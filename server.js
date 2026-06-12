@@ -9,7 +9,7 @@ const connectDB = require("./config/db");
 
 
 
-app.use(cors());
+app.use(cors("*"));
 app.use(express.json());
 
 app.use("/admin", express.static(path.join(__dirname, "public/admin")));
