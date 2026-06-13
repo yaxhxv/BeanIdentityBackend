@@ -67,97 +67,11 @@ async function getAuthClient() {
 }
 
 /**
- * Helper: Get or create the "Beanagram Stories" folder in admin's Drive.
- */
-async function getOrCreateFolder(drive, folderName = "Beanagram Stories") {
-  const authDoc = await GoogleDriveAuth.findOne();
-  if (authDoc && authDoc.folderId) {
-    try {
-      // Fast check if folder still exists
-      const folderMeta = await drive.files.get({
-        fileId: authDoc.folderId,
-        fields: "id, trashed",
-      });
-      if (folderMeta.data && !folderMeta.data.trashed) {
-        return authDoc.folderId;
-      }
-    } catch (e) {
-      console.log("Stored folder ID not found or inaccessible, searching/recreating...");
-    }
-  }
-
-  // Search for existing root folder
-  let folderId;
-  const searchResult = await drive.files.list({
-    q: `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: "files(id, name)",
-    spaces: "drive",
-  });
-
-  if (searchResult.data.files && searchResult.data.files.length > 0) {
-    folderId = searchResult.data.files[0].id;
-  } else {
-    // Create new folder
-    const folder = await drive.files.create({
-      requestBody: {
-        name: folderName,
-        mimeType: "application/vnd.google-apps.folder",
-      },
-      fields: "id",
-    });
-    folderId = folder.data.id;
-  }
-
-  // Save folderId to DB
-  await GoogleDriveAuth.updateOne({}, { $set: { folderId } });
-  return folderId;
-}
-
-/**
- * Helper: Find or create a subfolder inside a parent folder on Google Drive.
- */
-async function getOrCreateSubfolder(drive, parentId, folderName) {
-  const searchResult = await drive.files.list({
-    q: `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`,
-    fields: "files(id, name)",
-    spaces: "drive",
-  });
-
-  if (searchResult.data.files && searchResult.data.files.length > 0) {
-    return searchResult.data.files[0].id;
-  } else {
-    const folder = await drive.files.create({
-      requestBody: {
-        name: folderName,
-        mimeType: "application/vnd.google-apps.folder",
-        parents: [parentId],
-      },
-      fields: "id",
-    });
-    return folder.data.id;
-  }
-}
-
-/**
  * Upload a file buffer to Google Drive
  */
 async function uploadToGoogleDrive(fileBuffer, originalName, mimeType, options = {}) {
-  const { beanType, userName, userEmail } = options;
   const auth = await getAuthClient();
   const drive = google.drive({ version: "v3", auth });
-
-  let folderId = await getOrCreateFolder(drive);
-
-  // If options are provided, create nested folder structure
-  if (beanType) {
-    const formattedBeanName = beanType.charAt(0).toUpperCase() + beanType.slice(1) + " Bean";
-    folderId = await getOrCreateSubfolder(drive, folderId, formattedBeanName);
-
-    if (userName && userEmail) {
-      const userFolderName = `${userName} - ${userEmail}`;
-      folderId = await getOrCreateSubfolder(drive, folderId, userFolderName);
-    }
-  }
 
   // Convert buffer to readable stream
   const stream = new Readable();
@@ -168,7 +82,6 @@ async function uploadToGoogleDrive(fileBuffer, originalName, mimeType, options =
   const response = await drive.files.create({
     requestBody: {
       name: `${Date.now()}-${originalName}`,
-      parents: [folderId],
     },
     media: {
       mimeType: mimeType,

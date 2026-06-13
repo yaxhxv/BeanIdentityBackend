@@ -364,22 +364,46 @@ router.get("/media/:fileId", async (req, res) => {
     const auth = await getAuthClient();
     const drive = google.drive({ version: "v3", auth });
 
-    // Get metadata for content-type
-    const meta = await drive.files.get({
-      fileId,
-      fields: "mimeType",
-    }).catch(() => null);
+    const requestOptions = {
+      responseType: "stream",
+    };
 
-    if (meta && meta.data.mimeType) {
-      res.setHeader("Content-Type", meta.data.mimeType);
+    if (req.headers.range) {
+      requestOptions.headers = {
+        Range: req.headers.range,
+      };
     }
 
-    const fileStream = await drive.files.get(
+    const driveRes = await drive.files.get(
       { fileId, alt: "media" },
-      { responseType: "stream" }
+      requestOptions
     );
 
-    fileStream.data
+    // Set response status code (e.g. 200 or 206)
+    res.status(driveRes.status);
+
+    // Copy necessary headers from Drive's response
+    const headersToCopy = [
+      "content-range",
+      "content-length",
+      "content-type",
+      "accept-ranges",
+      "content-disposition",
+      "cache-control"
+    ];
+
+    headersToCopy.forEach((header) => {
+      if (driveRes.headers[header]) {
+        res.setHeader(header, driveRes.headers[header]);
+      }
+    });
+
+    // Explicitly support range seeking if requested
+    if (req.headers.range && !res.getHeader("accept-ranges")) {
+      res.setHeader("Accept-Ranges", "bytes");
+    }
+
+    driveRes.data
       .on("error", (err) => {
         console.error("Google Drive stream error:", err.message);
         if (!res.headersSent) res.status(500).send("Stream failed");
