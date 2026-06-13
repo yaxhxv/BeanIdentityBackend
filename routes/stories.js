@@ -393,15 +393,16 @@ router.get("/media/:fileId", async (req, res) => {
     ];
 
     headersToCopy.forEach((header) => {
-      if (driveRes.headers[header]) {
-        res.setHeader(header, driveRes.headers[header]);
+      const value = typeof driveRes.headers.get === "function"
+        ? driveRes.headers.get(header)
+        : driveRes.headers[header];
+      if (value) {
+        res.setHeader(header, value);
       }
     });
 
-    // Explicitly support range seeking if requested
-    if (req.headers.range && !res.getHeader("accept-ranges")) {
-      res.setHeader("Accept-Ranges", "bytes");
-    }
+    // Explicitly support range seeking
+    res.setHeader("Accept-Ranges", "bytes");
 
     driveRes.data
       .on("error", (err) => {
