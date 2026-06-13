@@ -155,9 +155,8 @@ async function uploadToGoogleDrive(fileBuffer, originalName, mimeType) {
     console.warn("Failed to set public read permissions on Google Drive file:", err.message);
   }
 
-  // Use the backend proxy URL as the primary link
-  const backendUrl = process.env.BACKEND_URL || "https://beanidentitybackend.onrender.com";
-  const proxyUrl = `${backendUrl}/api/stories/media/${file.id}`;
+  // Use a relative backend proxy URL to ensure portability between local/prod environments
+  const proxyUrl = `/api/stories/media/${file.id}`;
 
   return {
     fileId: file.id,
