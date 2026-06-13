@@ -37,6 +37,10 @@ const storySchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+    isPublished: {
+      type: Boolean,
+      default: false,
+    },
     reviewedAt: {
       type: Date,
     },

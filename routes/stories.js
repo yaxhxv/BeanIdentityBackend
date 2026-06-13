@@ -109,7 +109,7 @@ router.post("/submit", uploadMiddleware, async (req, res) => {
 // Route 2: GET /api/stories/approved - Fetch top 5 approved stories (public)
 router.get("/approved", async (req, res) => {
   try {
-    const stories = await Story.find({ status: "approved" })
+    const stories = await Story.find({ status: "approved", isPublished: true })
       .sort({ createdAt: -1 })
       .limit(5);
 
@@ -381,6 +381,38 @@ router.get("/media/:fileId", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).send("Internal Server Error");
     }
+  }
+});
+
+// Route 10: PATCH /api/stories/admin/:storyId/publish - Publish/unpublish an approved story (admin only)
+router.patch("/admin/:storyId/publish", adminAuth, async (req, res) => {
+  try {
+    const { isPublished } = req.body;
+
+    if (typeof isPublished !== "boolean") {
+      return res.status(400).json({ error: "Invalid parameters. 'isPublished' must be a boolean." });
+    }
+
+    const story = await Story.findById(req.params.storyId);
+    if (!story) {
+      return res.status(404).json({ error: "Story not found." });
+    }
+
+    if (story.status !== "approved") {
+      return res.status(400).json({ error: "Only approved stories can be published or unpublished." });
+    }
+
+    story.isPublished = isPublished;
+    await story.save();
+
+    return res.json({
+      success: true,
+      message: `Story has been successfully ${isPublished ? "published" : "unpublished"}.`,
+      story,
+    });
+  } catch (error) {
+    console.error("Error publishing story request:", error);
+    return res.status(500).json({ error: "Internal server error occurred." });
   }
 });
 
