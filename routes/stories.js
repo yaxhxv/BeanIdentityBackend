@@ -58,7 +58,11 @@ router.post("/submit", uploadMiddleware, async (req, res) => {
         // Enforce max 3 images for stories
         const imagesToUpload = req.files.images.slice(0, 3);
         const imageUploadPromises = imagesToUpload.map((file) =>
-          uploadToGoogleDrive(file.buffer, file.originalname, file.mimetype)
+          uploadToGoogleDrive(file.buffer, file.originalname, file.mimetype, {
+            beanType,
+            userName: name,
+            userEmail: email,
+          })
         );
         const imageResults = await Promise.all(imageUploadPromises);
         imageUrls = imageResults.map((result) => result.proxyUrl);
@@ -68,7 +72,12 @@ router.post("/submit", uploadMiddleware, async (req, res) => {
         const videoResult = await uploadToGoogleDrive(
           req.files.video[0].buffer,
           req.files.video[0].originalname,
-          req.files.video[0].mimetype
+          req.files.video[0].mimetype,
+          {
+            beanType,
+            userName: name,
+            userEmail: email,
+          }
         );
         videoUrl = videoResult.proxyUrl;
       }
