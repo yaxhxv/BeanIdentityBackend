@@ -237,7 +237,7 @@ router.get("/admin/google/auth-url", adminAuth, async (req, res) => {
       access_type: "offline",
       prompt: "consent",
       scope: [
-        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/userinfo.email",
       ],
       state: req.headers["x-admin-key"],
