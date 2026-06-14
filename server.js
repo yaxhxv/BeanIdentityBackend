@@ -15,6 +15,7 @@ app.use(express.json());
 app.use("/admin", express.static(path.join(__dirname, "public/admin")));
 app.use("/api/returns", require("./routes/returns"));
 app.use("/api/stories", require("./routes/stories"));
+app.use("/api/quiz", require("./routes/quiz"));
 
 app.get("/", (req, res) => {
   res.send("Returns Service Running 🚀");
