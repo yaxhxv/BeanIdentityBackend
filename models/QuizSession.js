@@ -23,7 +23,7 @@ const quizSessionSchema = new mongoose.Schema(
     },
     furthestStep: {
       type: Number,
-      default: 0, // 0 = welcome, 1-15 = questions, 16 = completed
+      default: 0, // 0 = welcome, 1-8 = questions, 9 = completed
     },
     answers: {
       type: Map,

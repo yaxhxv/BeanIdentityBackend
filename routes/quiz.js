@@ -120,7 +120,7 @@ router.post("/session/:sessionId/complete", async (req, res) => {
     // Finalize session
     session.isCompleted = true;
     session.winningArchetype = winningArchetype;
-    session.furthestStep = 16; // 16 represents completed results screen
+    session.furthestStep = 9; // 9 represents completed results screen
 
     if (answers) {
       for (const [key, value] of Object.entries(answers)) {
@@ -161,23 +161,23 @@ router.get("/admin/analytics", adminAuth, async (req, res) => {
     const completionRate = totalTraffic > 0 ? ((completedCount / totalTraffic) * 100).toFixed(1) : "0.0";
 
     // 1. Completion Funnel calculation
-    // Count exact frequency of furthestStep (0 to 16)
-    const stepCounts = Array(17).fill(0);
+    // Count exact frequency of furthestStep (0 to 9)
+    const stepCounts = Array(10).fill(0);
     const rawSteps = await QuizSession.aggregate([
       { $group: { _id: "$furthestStep", count: { $sum: 1 } } },
     ]);
     rawSteps.forEach((group) => {
       const idx = group._id;
-      if (idx >= 0 && idx <= 16) {
+      if (idx >= 0 && idx <= 9) {
         stepCounts[idx] = group.count;
       }
     });
 
     // Funnel represents the count of users who reached AT LEAST step i.
-    // E.g. funnel[i] = sum(stepCounts[i...16])
-    const funnel = Array(17).fill(0);
+    // E.g. funnel[i] = sum(stepCounts[i...9])
+    const funnel = Array(10).fill(0);
     let cumulative = 0;
-    for (let i = 16; i >= 0; i--) {
+    for (let i = 9; i >= 0; i--) {
       cumulative += stepCounts[i];
       funnel[i] = cumulative;
     }
