@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const QuizSession = require("../models/QuizSession");
 const adminAuth = require("../middleware/adminAuth");
+const { trackEvent } = require("../services/klaviyoService");
 
 // Helper function to validate email
 const isValidEmail = (email) => {
@@ -49,6 +50,14 @@ router.post("/session", async (req, res) => {
     });
 
     await session.save();
+
+    // Track "Started Quiz" in Klaviyo in background
+    trackEvent(session.email, session.name, "Started Quiz", {
+      furthestStep: 0,
+      referredByResult: session.referredByResult || null
+    }).catch((err) => {
+      console.error("[Quiz Route] Klaviyo tracking failed for Started Quiz:", err);
+    });
 
     return res.status(201).json({
       success: true,
@@ -138,6 +147,15 @@ router.post("/session/:sessionId/complete", async (req, res) => {
     }
 
     await session.save();
+
+    // Track "Completed Quiz" in Klaviyo in background
+    trackEvent(session.email, session.name, "Completed Quiz", {
+      winningArchetype: session.winningArchetype,
+      scores: session.scores,
+      resultsUrl: `https://beanidentity.com/pages/quiz-results?session=${session._id}`
+    }).catch((err) => {
+      console.error("[Quiz Route] Klaviyo tracking failed for Completed Quiz:", err);
+    });
 
     return res.json({ success: true });
   } catch (error) {
