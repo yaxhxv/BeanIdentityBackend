@@ -4,6 +4,7 @@ const router = express.Router();
 const QuizSession = require("../models/QuizSession");
 const adminAuth = require("../middleware/adminAuth");
 const { trackEvent } = require("../services/klaviyoService");
+const { createOrUpdateCustomer } = require("../services/shopifyService");
 
 // Helper function to validate email
 const isValidEmail = (email) => {
@@ -57,6 +58,11 @@ router.post("/session", async (req, res) => {
       referredByResult: session.referredByResult || null
     }).catch((err) => {
       console.error("[Quiz Route] Klaviyo tracking failed for Started Quiz:", err);
+    });
+
+    // Create/update customer in Shopify in background
+    createOrUpdateCustomer(session.email, session.name, ["Quiz", "Quiz-Started"]).catch((err) => {
+      console.error("[Quiz Route] Shopify customer sync failed for Started Quiz:", err);
     });
 
     return res.status(201).json({
@@ -155,6 +161,11 @@ router.post("/session/:sessionId/complete", async (req, res) => {
       resultsUrl: `https://beanidentity.com/pages/quiz-results?session=${session._id}`
     }).catch((err) => {
       console.error("[Quiz Route] Klaviyo tracking failed for Completed Quiz:", err);
+    });
+
+    // Create/update customer in Shopify in background with completion details
+    createOrUpdateCustomer(session.email, session.name, ["Quiz-Completed", `Quiz-Outcome-${winningArchetype}`]).catch((err) => {
+      console.error("[Quiz Route] Shopify customer sync failed for Completed Quiz:", err);
     });
 
     return res.json({ success: true });

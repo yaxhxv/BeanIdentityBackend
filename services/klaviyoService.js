@@ -64,7 +64,7 @@ const trackEvent = async (email, name, eventName, properties = {}) => {
     return true;
   } catch (error) {
     const errorData = error.response ? error.response.data : null;
-    console.error(`[KlaviyoService] Error tracking event "${eventName}" for ${email}:`, 
+    console.error(`[KlaviyoService] Error tracking event "${eventName}" for ${email}:`,
       errorData ? JSON.stringify(errorData) : error.message
     );
     return false;
