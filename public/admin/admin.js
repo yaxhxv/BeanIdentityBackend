@@ -167,6 +167,46 @@ document.addEventListener("DOMContentLoaded", () => {
     return colors[type] || '#A67C52';
   };
 
+  const getPrimaryBeanKey = (archetypeKey) => {
+    if (!archetypeKey) return "";
+    return archetypeKey.split("_")[0];
+  };
+
+  const formatArchetype = (winningArchetype, resultType) => {
+    if (!winningArchetype) return "INCOMPLETE";
+    
+    const beanNames = {
+      coffee: "Coffee Bean",
+      chilli: "Chilli Bean",
+      vanilla: "Vanilla Bean",
+      jelly: "Jelly Bean",
+      green: "Green Bean"
+    };
+
+    if (winningArchetype.includes("_")) {
+      const [primary, secondary] = winningArchetype.split("_");
+      const primaryName = beanNames[primary] || primary;
+      const secondaryName = beanNames[secondary] || secondary;
+      
+      const cleanPrimary = primaryName.replace(" Bean", "");
+      const cleanSecondary = secondaryName.replace(" Bean", "");
+
+      if (resultType === "true_blend") {
+        return `${cleanPrimary} & ${cleanSecondary} True Blend`;
+      } else {
+        return `${cleanPrimary} & ${cleanSecondary} Dual Blend`;
+      }
+    }
+
+    const displayName = beanNames[winningArchetype] || `${winningArchetype} Bean`;
+    if (resultType === "dominant") {
+      return `${displayName} (Dominant)`;
+    } else if (resultType === "single") {
+      return `${displayName} (Single)`;
+    }
+    return displayName;
+  };
+
   // Update pending, approved, and rejected count stats badges
   const updateStatsBadges = async () => {
     if (!adminSecretKey) return;
@@ -543,10 +583,27 @@ document.addEventListener("DOMContentLoaded", () => {
       if (totalCompletions === 0) {
         donutSvg.innerHTML = `<circle cx="50" cy="50" r="25" fill="transparent" stroke="rgba(255,255,255,0.06)" stroke-width="12" />`;
       } else {
+        // Aggregate by Primary Bean for clean 5-segment Donut Chart
+        const primaryBeanCounts = {
+          coffee: 0,
+          chilli: 0,
+          vanilla: 0,
+          jelly: 0,
+          green: 0
+        };
+        
+        Object.entries(data.archetypeDistribution).forEach(([archetype, count]) => {
+          const primaryKey = getPrimaryBeanKey(archetype);
+          if (primaryBeanCounts[primaryKey] !== undefined) {
+            primaryBeanCounts[primaryKey] += count;
+          }
+        });
+
         const donutCircumference = 157.08; // 2 * pi * 25
         let cumulativeVal = 0;
         
-        Object.entries(data.archetypeDistribution).forEach(([bean, count]) => {
+        Object.entries(primaryBeanCounts).forEach(([bean, count]) => {
+          if (count === 0) return;
           const pct = count / totalCompletions;
           const segmentLength = pct * donutCircumference;
           const segmentOffset = -cumulativeVal;
@@ -558,7 +615,7 @@ document.addEventListener("DOMContentLoaded", () => {
               stroke="${color}" stroke-width="12" 
               stroke-dasharray="${segmentLength} ${donutCircumference}" 
               stroke-dashoffset="${segmentOffset}" 
-              transform="rotate(-90 50 50)" 
+              transform="rotate(-95 50 50)" 
               style="transition: stroke-dashoffset 0.5s ease;" />
           `;
         });
@@ -566,25 +623,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Ranked List
       outcomesList.innerHTML = "";
-      const sortedOutcomes = Object.entries(data.archetypeDistribution)
-        .sort((a, b) => b[1] - a[1]);
-      
-      sortedOutcomes.forEach(([bean, count]) => {
-        const pct = totalCompletions > 0 ? (count / totalCompletions) * 100 : 0;
-        const color = getBeanBadgeColor(bean);
+      if (data.detailedOutcomes && data.detailedOutcomes.length > 0) {
+        data.detailedOutcomes.forEach((item) => {
+          const pct = totalCompletions > 0 ? (item.count / totalCompletions) * 100 : 0;
+          const primaryBean = getPrimaryBeanKey(item.winningArchetype);
+          const color = getBeanBadgeColor(primaryBean);
+          const friendlyName = formatArchetype(item.winningArchetype, item.resultType);
+          
+          const li = document.createElement("li");
+          li.className = "outcome-list-item";
+          li.innerHTML = `
+            <span class="outcome-dot" style="background-color: ${color};"></span>
+            <span class="outcome-name">${friendlyName}</span>
+            <div class="outcome-percentage-bar">
+              <div class="outcome-percentage-fill" style="width: ${pct}%; background-color: ${color};"></div>
+            </div>
+            <span class="outcome-count">${item.count}</span>
+          `;
+          outcomesList.appendChild(li);
+        });
+      } else {
+        // Fallback to basic distribution if detailedOutcomes is somehow not returned
+        const sortedOutcomes = Object.entries(data.archetypeDistribution)
+          .sort((a, b) => b[1] - a[1]);
         
-        const li = document.createElement("li");
-        li.className = "outcome-list-item";
-        li.innerHTML = `
-          <span class="outcome-dot" style="background-color: ${color};"></span>
-          <span class="outcome-name">${bean} Bean</span>
-          <div class="outcome-percentage-bar">
-            <div class="outcome-percentage-fill" style="width: ${pct}%; background-color: ${color};"></div>
-          </div>
-          <span class="outcome-count">${count}</span>
-        `;
-        outcomesList.appendChild(li);
-      });
+        sortedOutcomes.forEach(([bean, count]) => {
+          const pct = totalCompletions > 0 ? (count / totalCompletions) * 100 : 0;
+          const primaryBean = getPrimaryBeanKey(bean);
+          const color = getBeanBadgeColor(primaryBean);
+          const friendlyName = formatArchetype(bean, null);
+          
+          const li = document.createElement("li");
+          li.className = "outcome-list-item";
+          li.innerHTML = `
+            <span class="outcome-dot" style="background-color: ${color};"></span>
+            <span class="outcome-name">${friendlyName}</span>
+            <div class="outcome-percentage-bar">
+              <div class="outcome-percentage-fill" style="width: ${pct}%; background-color: ${color};"></div>
+            </div>
+            <span class="outcome-count">${count}</span>
+          `;
+          outcomesList.appendChild(li);
+        });
+      }
 
       // 3. PARTICIPANTS TABLE
       if (clearList) {
@@ -604,10 +685,13 @@ document.addEventListener("DOMContentLoaded", () => {
         responseParticipants.forEach(p => {
           allParticipantsList.push(p);
           const tr = document.createElement("tr");
-          const beanColor = getBeanBadgeColor(p.winningArchetype);
+          
+          const primaryBean = getPrimaryBeanKey(p.winningArchetype);
+          const beanColor = getBeanBadgeColor(primaryBean);
+          const friendlyMatchName = formatArchetype(p.winningArchetype, p.resultType);
           
           const matchBadge = p.winningArchetype 
-            ? `<span class="winning-match-badge" style="background-color: ${beanColor}15; color: ${beanColor}; border: 1px solid ${beanColor}30;">${p.winningArchetype} Bean</span>`
+            ? `<span class="winning-match-badge" style="background-color: ${beanColor}15; color: ${beanColor}; border: 1px solid ${beanColor}30;">${friendlyMatchName}</span>`
             : `<span class="winning-match-badge" style="background-color: rgba(255,255,255,0.03); color: var(--text-muted); border: 1px solid var(--border);">INCOMPLETE</span>`;
           
           const furthestMarkup = p.isCompleted 

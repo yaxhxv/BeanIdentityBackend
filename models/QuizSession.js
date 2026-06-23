@@ -41,6 +41,11 @@ const quizSessionSchema = new mongoose.Schema(
       type: String,
       default: null, // winning profile key or dual blend key
     },
+    resultType: {
+      type: String,
+      enum: ["single", "dominant", "dual_blend", "true_blend", null],
+      default: null,
+    },
     isCompleted: {
       type: Boolean,
       default: false,

@@ -5,6 +5,88 @@ const QuizSession = require("../models/QuizSession");
 const adminAuth = require("../middleware/adminAuth");
 const { trackEvent } = require("../services/klaviyoService");
 const { createOrUpdateCustomer } = require("../services/shopifyService");
+const mongoose = require("mongoose");
+
+// Helper function to calculate result details (winningArchetype & resultType) from scores
+const calculateResultDetails = (scores) => {
+  if (!scores) return { winningArchetype: null, resultType: null };
+  const rawObj = scores.toObject ? scores.toObject() : scores;
+  const sortedScores = Object.entries(rawObj)
+    .sort((a, b) => b[1] - a[1]);
+  if (sortedScores.length < 2) {
+    return { winningArchetype: sortedScores[0]?.[0] || null, resultType: "single" };
+  }
+  
+  const top1 = sortedScores[0];
+  const top2 = sortedScores[1];
+  const rawGap = top1[1] - top2[1];
+
+  const isTrueBlend = (rawGap === 0);
+  const isDualBlend = (rawGap === 1 || rawGap === 2);
+
+  if (isTrueBlend || isDualBlend) {
+    return {
+      winningArchetype: `${top1[0]}_${top2[0]}`,
+      resultType: isTrueBlend ? "true_blend" : "dual_blend"
+    };
+  }
+
+  // Calculate percentages
+  const total = 32; // denominator used in quiz
+  const percents = {};
+  let sum = 0;
+  let maxKey = sortedScores[0][0];
+  let maxVal = -1;
+  
+  for (const [key, val] of sortedScores) {
+    const p = Math.round((val / total) * 100);
+    percents[key] = p;
+    sum += p;
+    if (val > maxVal) {
+      maxVal = val;
+      maxKey = key;
+    }
+  }
+  const diff = 100 - sum;
+  if (diff !== 0 && percents[maxKey]) {
+    percents[maxKey] += diff;
+  }
+  
+  const primaryPct = percents[maxKey] || 0;
+  const resultType = primaryPct > 50 ? "dominant" : "single";
+  return {
+    winningArchetype: top1[0],
+    resultType
+  };
+};
+
+// Database migration to calibrate historical records
+const calibrateHistoricalQuizSessions = async () => {
+  try {
+    const sessions = await QuizSession.find({ isCompleted: true, resultType: { $exists: false } });
+    if (sessions.length > 0) {
+      console.log(`[Migration] Found ${sessions.length} completed quiz sessions needing calibration.`);
+      for (const session of sessions) {
+        const { winningArchetype, resultType } = calculateResultDetails(session.scores);
+        session.winningArchetype = winningArchetype;
+        session.resultType = resultType;
+        await session.save();
+      }
+      console.log(`[Migration] Calibrated ${sessions.length} historical quiz sessions.`);
+    }
+  } catch (err) {
+    console.error("[Migration] Error calibrating historical quiz sessions:", err);
+  }
+};
+
+// Run migration once Mongoose connection is ready
+if (mongoose.connection.readyState === 1) {
+  calibrateHistoricalQuizSessions();
+} else {
+  mongoose.connection.once("open", () => {
+    calibrateHistoricalQuizSessions();
+  });
+}
 
 // Helper function to validate email
 const isValidEmail = (email) => {
@@ -121,7 +203,7 @@ router.put("/session/:sessionId/progress", async (req, res) => {
 router.post("/session/:sessionId/complete", async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { winningArchetype, answers, scores } = req.body;
+    const { winningArchetype, resultType, answers, scores } = req.body;
 
     if (!winningArchetype) {
       return res.status(400).json({ error: "Winning archetype is required." });
@@ -131,11 +213,6 @@ router.post("/session/:sessionId/complete", async (req, res) => {
     if (!session) {
       return res.status(404).json({ error: "Quiz session not found." });
     }
-
-    // Finalize session
-    session.isCompleted = true;
-    session.winningArchetype = winningArchetype;
-    session.furthestStep = 9; // 9 represents completed results screen
 
     if (answers) {
       for (const [key, value] of Object.entries(answers)) {
@@ -152,11 +229,25 @@ router.post("/session/:sessionId/complete", async (req, res) => {
       };
     }
 
+    // Finalize session
+    session.isCompleted = true;
+    session.furthestStep = 9; // 9 represents completed results screen
+
+    if (winningArchetype && resultType) {
+      session.winningArchetype = winningArchetype;
+      session.resultType = resultType;
+    } else {
+      const { winningArchetype: computedWinner, resultType: computedType } = calculateResultDetails(session.scores);
+      session.winningArchetype = winningArchetype || computedWinner;
+      session.resultType = resultType || computedType;
+    }
+
     await session.save();
 
     // Track "Completed Quiz" in Klaviyo in background
     trackEvent(session.email, session.name, "Completed Quiz", {
       winningArchetype: session.winningArchetype,
+      resultType: session.resultType,
       scores: session.scores,
       resultsUrl: `https://beanidentity.com/pages/quiz-results?session=${session._id}`
     }).catch((err) => {
@@ -164,7 +255,7 @@ router.post("/session/:sessionId/complete", async (req, res) => {
     });
 
     // Create/update customer in Shopify in background with completion details
-    createOrUpdateCustomer(session.email, session.name, ["Quiz-Completed", `Quiz-Outcome-${winningArchetype}`]).catch((err) => {
+    createOrUpdateCustomer(session.email, session.name, ["Quiz-Completed", `Quiz-Outcome-${session.winningArchetype}`]).catch((err) => {
       console.error("[Quiz Route] Shopify customer sync failed for Completed Quiz:", err);
     });
 
@@ -214,13 +305,33 @@ router.get("/admin/analytics", adminAuth, async (req, res) => {
     // 2. Winning archetype distribution
     const rawArchetypes = await QuizSession.aggregate([
       { $match: { isCompleted: true } },
-      { $group: { _id: "$winningArchetype", count: { $sum: 1 } } },
+      { 
+        $group: { 
+          _id: { 
+            winningArchetype: "$winningArchetype", 
+            resultType: "$resultType" 
+          }, 
+          count: { $sum: 1 } 
+        } 
+      },
       { $sort: { count: -1 } },
     ]);
+
+    const detailedOutcomes = [];
     const archetypeDistribution = {};
+
     rawArchetypes.forEach((item) => {
-      if (item._id) {
-        archetypeDistribution[item._id] = item.count;
+      if (item._id && item._id.winningArchetype) {
+        const key = item._id.winningArchetype;
+        const type = item._id.resultType || "single";
+        detailedOutcomes.push({
+          winningArchetype: key,
+          resultType: type,
+          count: item.count
+        });
+        
+        // Backward compatibility fallback for archetypeDistribution
+        archetypeDistribution[key] = (archetypeDistribution[key] || 0) + item.count;
       }
     });
 
@@ -250,6 +361,7 @@ router.get("/admin/analytics", adminAuth, async (req, res) => {
       completionRate,
       funnel,
       archetypeDistribution,
+      detailedOutcomes,
       participants,
       pagination: {
         total: participantsTotal,
